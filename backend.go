@@ -52,7 +52,10 @@ func (backend *Backend) Run(statement Statement) {
 }
 
 func (backend *Backend) runCreateTable(statement CreateTableStatement) {
-	backend.tables[statement.Name] = table{columns: statement.Columns}
+	backend.tables[statement.Name] = table{
+		columns: statement.Columns,
+		data:    &[]byte{},
+	}
 }
 
 func (backend *Backend) runInsert(statement InsertStatement) {

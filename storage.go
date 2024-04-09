@@ -133,9 +133,12 @@ func (s Storage) InsertInto(tableToInsert string, values []RowValue) error {
 		}
 	}
 
-	// If a page for the table cannot be found, create a new one
 	if maxPageIndex == -1 {
+		// If a page for the table cannot be found, create a new one
 		maxPageIndex, err = s.createPage(tableToInsert, true)
+		if err != nil {
+			return err
+		}
 	} else {
 		// Check whether there is enough space on the page, and create a new one if
 		// needed

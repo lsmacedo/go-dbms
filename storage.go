@@ -264,8 +264,6 @@ func (s Storage) createPage(tableName string, addToPageDirectory bool) (int, err
 	if err != nil {
 		return -1, err
 	}
-
-	// Find next available index for the page
 	pageIndex := int(int(stat.Size()) / s.pageSize)
 	if stat.Size() > 0 {
 		pageIndex++

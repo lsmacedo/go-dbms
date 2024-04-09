@@ -64,23 +64,21 @@ func NewStorage() Storage {
 }
 
 func (s Storage) CreateTable(tableName string, columns []ColumnDefinition) error {
-	// Write table name into first buffer
-	buf1 := NewByteStreamBuffer()
-	buf1.WriteString(tableName)
-
-	// Write table columns into second buffer
-	buf2 := NewByteStreamBuffer()
+	// Create buffer with column definitions
+	cd := NewByteStreamBuffer()
 	for _, column := range columns {
-		buf2.WriteString(column.Name)
-		buf2.WriteInt(int(columnTypeFromString(column.Type)), SmallIntSize)
+		cd.WriteString(column.Name)
+		cd.WriteInt(int(columnTypeFromString(column.Type)), SmallIntSize)
 	}
 
-	// Write table columns length into first buffer and then concat with column
-	// definitions
-	buf1.WriteInt(len(buf2.Bytes()), IntSize)
+	// Create buffer to be written into page
+	buf := NewByteStreamBuffer()
+	buf.WriteString(tableName)
+	buf.WriteInt(len(cd.Bytes()), IntSize)
+	buf.Concat(cd)
 
 	// Write into page
-	err := s.appendToPage(append(buf1.Bytes(), buf2.Bytes()...), int(TableDefinitionsIndex))
+	err := s.appendToPage(buf.Bytes(), int(TableDefinitionsIndex))
 	if err != nil {
 		return err
 	}

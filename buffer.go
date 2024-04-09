@@ -74,3 +74,7 @@ func (wb *ByteStreamBuffer) Cursor() int {
 func (wb *ByteStreamBuffer) Skip(offset int) {
 	wb.cursor += offset
 }
+
+func (wb *ByteStreamBuffer) Concat(buffer ByteStreamBuffer) {
+	wb.buffer.Write(buffer.Bytes())
+}

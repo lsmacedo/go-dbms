@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"unicode"
 	"unicode/utf8"
 )
@@ -28,7 +29,7 @@ const (
 
 type Token struct {
 	Type  TokenType
-	Value string
+	Value interface{}
 }
 
 func NewLexer() Lexer {
@@ -133,5 +134,9 @@ func (l Lexer) currString() string {
 }
 
 func (l Lexer) createToken(tokenType TokenType) Token {
+	if tokenType == NUMBER {
+		value, _ := strconv.Atoi(l.currString())
+		return Token{Type: tokenType, Value: value}
+	}
 	return Token{Type: tokenType, Value: l.currString()}
 }

@@ -1,69 +1,15 @@
 package main
 
-import (
-	"bytes"
-	"encoding/binary"
-	"strconv"
-)
+import "strconv"
 
-const INT_SIZE = 4
-const SMALL_INT_SIZE = 2
-
-func valueToByteArray(value *string, columnType string) []byte {
-	var rowData = []byte{}
-	switch columnType {
-	case "text":
-		// Structure:
-		// 2 bytes - text length
-		// n bytes - value
-		if value == nil {
-			return make([]byte, SMALL_INT_SIZE)
-		}
-		rowData = append(rowData, smallIntToByteArray(len(*value))...)
-		rowData = append(rowData, []byte(*value)...)
-	case "integer":
-		// Structure:
-		// 4 bytes - value
-		if value == nil {
-			return make([]byte, INT_SIZE)
-		}
-		intValue, err := strconv.Atoi(*value)
-		if err != nil {
-			panic("invalid integer value")
-		}
-		rowData = append(rowData, intToByteArray(intValue)...)
-	}
-	return rowData
-}
-
-func intToByteArray(i int) (arr []byte) {
-	buf := new(bytes.Buffer)
-	binary.Write(buf, binary.BigEndian, int32(i))
-	return buf.Bytes()
-}
-
-func smallIntToByteArray(i int) (arr []byte) {
-	buf := new(bytes.Buffer)
-	binary.Write(buf, binary.BigEndian, int16(i))
-	return buf.Bytes()
-}
-
-func intFromByteArray(byteArray []byte, cursor int) int {
-	return int(binary.BigEndian.Uint32(byteArray[cursor : cursor+INT_SIZE]))
-}
-
-func smallIntFromByteArray(byteArray []byte, cursor int) int {
-	return int(binary.BigEndian.Uint16(byteArray[cursor : cursor+SMALL_INT_SIZE]))
-}
-
-func expandSelectItems(statement SelectStatement, table table) []Expression {
+func expandSelectItems(items []Expression, table TableDefinition) []Expression {
 	var selectItems []Expression
-	for _, item := range *statement.Items {
+	for _, item := range items {
 		if item.Identifier == "*" {
-			for i := range *table.columns {
+			for i := range table.Columns {
 				selectItems = append(selectItems, Expression{
 					Kind:       IdentifierExpressionKind,
-					Identifier: (*table.columns)[i].Name,
+					Identifier: table.Columns[i].Name,
 				})
 			}
 		} else {
@@ -73,96 +19,79 @@ func expandSelectItems(statement SelectStatement, table table) []Expression {
 	return selectItems
 }
 
-func determineAggregateFunctions(selectItems []Expression) []AggregateFunction {
-	var aggregateFunctions []AggregateFunction
-	for i := range selectItems {
-		if selectItems[i].Kind == FunctionExpressionKind {
-			aggregateFunctions = append(
-				aggregateFunctions,
-				AggregateFunction{
-					ItemIndex: i,
-					Function:  selectItems[i].Function,
-					Data:      make(map[string]int),
-				},
-			)
-		}
-	}
-	return aggregateFunctions
-}
-
-func eval(expression Expression, table table, cursor int, groupKey *string, functions []AggregateFunction) string {
-	if expression == (Expression{}) {
-		return "?"
-	}
+func evaluateExpression(expression Expression, row Row, table TableDefinition) interface{} {
 	switch expression.Kind {
-	case FunctionExpressionKind:
-		for i := range functions {
-			if functions[i].Function.Name == expression.Function.Name {
-				return strconv.Itoa(functions[i].Data[*groupKey])
-			}
-		}
 	case IdentifierExpressionKind:
-		var columnType string
-		cursor += INT_SIZE // Skipping row header
-		for _, column := range *table.columns {
-			if column.Name == expression.Identifier {
-				columnType = column.Type
-				break
-			}
-			cursor += nextColumnCursor(column.Type, table, cursor)
-		}
-		return readColumnValue(columnType, table, cursor)
-	case LiteralExpressionKind:
-		return expression.Literal
+		return row.Values[table.ColumnIndexes[expression.Identifier]].Value
 	case BinaryExpressionKind:
-		a := eval(expression.Binary.A, table, cursor, groupKey, functions)
-		b := eval(expression.Binary.B, table, cursor, groupKey, functions)
-		intA, _ := strconv.Atoi(a)
-		intB, _ := strconv.Atoi(b)
+		a := evaluateExpression(expression.Binary.A, row, table)
+		b := evaluateExpression(expression.Binary.B, row, table)
 		switch expression.Binary.Operator {
 		case "=":
-			return booleanToString(a == b)
+			return a == b
 		case "<>":
-			return booleanToString(a != b)
+			return a != b
 		case ">":
-			return booleanToString(intA > intB)
+			return evaluateAGtB(a, b)
 		case ">=":
-			return booleanToString(intA >= intB)
+			return evaluateAGteB(a, b)
 		case "<":
-			return booleanToString(intA < intB)
+			return evaluateALtB(a, b)
 		case "<=":
-			return booleanToString(intA <= intB)
-		case "%":
-			return strconv.Itoa(intA % intB)
+			return evaluateALteB(a, b)
 		}
-		return "?"
+	case LiteralExpressionKind:
+		return expression.Literal
 	}
 	return "?"
 }
 
-func booleanToString(b bool) string {
-	if b {
-		return "1"
+func evaluateAGtB(a interface{}, b interface{}) bool {
+	switch a.(type) {
+	case int:
+		return a.(int) > b.(int)
+	case string:
+		return a.(string) > b.(string)
 	}
-	return "0"
+	return false
 }
 
-func nextColumnCursor(columnType string, table table, cursor int) int {
-	if columnType == "text" {
-		return smallIntFromByteArray(*table.data, cursor) + SMALL_INT_SIZE
-	} else if columnType == "integer" {
-		return INT_SIZE
+func evaluateAGteB(a interface{}, b interface{}) bool {
+	switch a.(type) {
+	case int:
+		return a.(int) >= b.(int)
+	case string:
+		return a.(string) >= b.(string)
 	}
-	return 0
+	return false
 }
 
-func readColumnValue(columnType string, table table, cursor int) string {
-	if columnType == "text" {
-		length := smallIntFromByteArray(*table.data, cursor)
-		cursor += SMALL_INT_SIZE
-		return string((*table.data)[cursor : cursor+length])
-	} else if columnType == "integer" {
-		return strconv.Itoa(intFromByteArray(*table.data, cursor))
+func evaluateALtB(a interface{}, b interface{}) bool {
+	switch a.(type) {
+	case int:
+		return a.(int) < b.(int)
+	case string:
+		return a.(string) < b.(string)
+	}
+	return false
+}
+
+func evaluateALteB(a interface{}, b interface{}) bool {
+	switch a.(type) {
+	case int:
+		return a.(int) <= b.(int)
+	case string:
+		return a.(string) <= b.(string)
+	}
+	return false
+}
+
+func interfaceToString(i interface{}) string {
+	switch i.(type) {
+	case string:
+		return i.(string)
+	case int:
+		return strconv.Itoa(i.(int))
 	}
 	return "?"
 }

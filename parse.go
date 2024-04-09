@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 )
 
@@ -76,7 +75,7 @@ func (p *Parser) parseCreateTable() (CreateTableStatement, error) {
 	columns := p.parseCreateTableColumns()
 
 	return CreateTableStatement{
-		Name:    table.Value,
+		Name:    table.Value.(string),
 		Columns: &columns,
 	}, nil
 }
@@ -93,7 +92,7 @@ func (p *Parser) parseCreateTableColumns() []ColumnDefinition {
 		columnType := p.matchToken(KEYWORD)
 		columns = append(
 			columns,
-			ColumnDefinition{Name: columnName.Value, Type: columnType.Value},
+			ColumnDefinition{Name: columnName.Value.(string), Type: columnType.Value.(string)},
 		)
 
 		if p.matchToken(COMMA) == (Token{}) {
@@ -119,7 +118,7 @@ func (p *Parser) parseInsert() (InsertStatement, error) {
 	var values = p.parseInsertValues()
 
 	return InsertStatement{
-		Table:   table.Value,
+		Table:   table.Value.(string),
 		Columns: &columns,
 		Values:  &values,
 	}, nil
@@ -133,7 +132,7 @@ func (p *Parser) parseInsertColumns() []Expression {
 		if column == (Token{}) {
 			break
 		}
-		columns = append(columns, Expression{Identifier: column.Value})
+		columns = append(columns, Expression{Identifier: column.Value.(string)})
 		if p.matchToken(COMMA) == (Token{}) {
 			break
 		}
@@ -153,7 +152,7 @@ func (p *Parser) parseInsertValues() []Expression {
 		if value == (Token{}) {
 			break
 		}
-		values = append(values, Expression{Literal: value.Value})
+		values = append(values, Expression{Kind: LiteralExpressionKind, Literal: value.Value})
 		if p.matchToken(COMMA) == (Token{}) {
 			break
 		}
@@ -246,7 +245,7 @@ func (p *Parser) parseItem() Expression {
 		}
 
 		if item.Type == IDENTIFIER || item.Type == WILDCARD {
-			expression = Expression{Kind: IdentifierExpressionKind, Identifier: item.Value}
+			expression = Expression{Kind: IdentifierExpressionKind, Identifier: item.Value.(string)}
 		} else {
 			expression = Expression{Kind: LiteralExpressionKind, Literal: item.Value}
 		}
@@ -259,7 +258,7 @@ func (p *Parser) parseItem() Expression {
 				Binary: &BinaryExpression{
 					A:        expression,
 					B:        p.parseItem(),
-					Operator: operator.Value,
+					Operator: operator.Value.(string),
 				},
 			}
 		} else {
@@ -276,11 +275,11 @@ func (p *Parser) parseSelectTable() (string, error) {
 	if table == (Token{}) {
 		return "", errors.New("expected identifier after 'from'")
 	}
-	return table.Value, nil
+	return table.Value.(string), nil
 }
 
-func (p *Parser) parseOrderBy() (OrderByExpression, error) {
-	var orderBy OrderByExpression
+func (p *Parser) parseOrderBy() (OrderBy, error) {
+	var orderBy OrderBy
 
 	if !p.matchKeyword("order by") {
 		return orderBy, nil
@@ -326,12 +325,12 @@ func (p *Parser) parseInt(keywords string) (int, error) {
 		return -1, fmt.Errorf("expected valid int after '%s'", keywords)
 	}
 
-	value, err := strconv.Atoi(item.Literal)
-	if err != nil {
+	switch item.Literal.(type) {
+	case int:
+		return item.Literal.(int), nil
+	default:
 		return -1, fmt.Errorf("expected valid int after '%s", keywords)
 	}
-
-	return value, nil
 }
 
 func (p *Parser) matchKeyword(value string) bool {
@@ -347,7 +346,7 @@ func (p *Parser) matchKeyword(value string) bool {
 		if i != 0 {
 			str += " "
 		}
-		str += p.tokens[p.cursor+i].Value
+		str += p.tokens[p.cursor+i].Value.(string)
 	}
 	if str == value {
 		p.cursor += n

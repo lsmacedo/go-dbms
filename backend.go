@@ -7,29 +7,11 @@ import (
 )
 
 type Backend struct {
-	tables map[string]table
-}
-
-type table struct {
-	columns *[]ColumnDefinition
-	data    *[]byte
-}
-
-type SelectedRow struct {
-	Data  []string
-	Order string
-}
-
-type AggregateFunction struct {
-	ItemIndex int
-	Function  Function
-	Data      map[string]int
+	storage Storage
 }
 
 func NewBackend() *Backend {
-	return &Backend{
-		tables: map[string]table{},
-	}
+	return &Backend{storage: NewStorage()}
 }
 
 func (backend *Backend) Run(statement Statement) {
@@ -51,130 +33,108 @@ func (backend *Backend) Run(statement Statement) {
 	}
 }
 
-func (backend *Backend) runCreateTable(statement CreateTableStatement) {
-	backend.tables[statement.Name] = table{
-		columns: statement.Columns,
-		data:    &[]byte{},
-	}
+func (backend Backend) runCreateTable(statement CreateTableStatement) {
+	backend.storage.CreateTable(statement.Name, *statement.Columns)
 }
 
 func (backend *Backend) runInsert(statement InsertStatement) {
-	table := backend.tables[statement.Table]
-
-	var rowData []byte
-	for i := 0; i < len(*table.columns); i++ {
-		var value *string
-		for j := range *statement.Columns {
-			if (*table.columns)[i].Name == (*statement.Columns)[j].Identifier {
-				value = &(*statement.Values)[j].Literal
-				break
-			}
+	var rows []RowValue
+	for i := range *statement.Values {
+		row := RowValue{
+			Column: (*statement.Columns)[i].Identifier,
+			Value:  (*statement.Values)[i].Literal,
 		}
-		rowData = append(rowData, valueToByteArray(value, (*table.columns)[i].Type)...)
+		rows = append(rows, row)
 	}
-
-	// Row Structure
-	// 4 bytes - next row offset
-	// n bytes - row data
-	*table.data = append(*table.data, intToByteArray(INT_SIZE+len(rowData))...)
-	*table.data = append(*table.data, rowData...)
+	backend.storage.InsertInto(statement.Table, rows)
 }
 
 func (backend Backend) runSelect(statement SelectStatement) [][]string {
-	var resultSet []*SelectedRow
-	var groupedData map[string]*SelectedRow
+	var result []Row
+	var groupedData map[string]Row
 
-	table := backend.tables[statement.Table]
+	tableDefinition, _ := backend.storage.GetTableDefinition(statement.Table)
 
-	selectItems := expandSelectItems(statement, table)
-	aggregateFunctions := determineAggregateFunctions(selectItems)
-
-	// Should group data if group by is specified or if there are aggregate functions
-	grouping := statement.GroupBy != (Expression{}) || len(aggregateFunctions) > 0
+	// Should group data if group by is specified
+	grouping := statement.GroupBy != (Expression{})
 	if grouping {
-		groupedData = make(map[string]*SelectedRow)
+		groupedData = make(map[string]Row)
 	}
 
-	// Select rows
-	for cursor := 0; cursor < len(*table.data); cursor += intFromByteArray(*table.data, cursor) {
+	// Sequential scan through table rows
+	for index, row := range backend.storage.TableRows(statement.Table) {
+		// Break loop after reaching limit
+		if statement.Limit != -1 &&
+			index >= statement.Limit &&
+			statement.GroupBy == (Expression{}) &&
+			statement.OrderBy == (OrderBy{}) {
+			break
+		}
 		// Apply where condition
 		if statement.Where != (Expression{}) {
-			if eval(statement.Where, table, cursor, nil, nil) == "0" {
+			if evaluateExpression(statement.Where, row, tableDefinition) != true {
 				continue
 			}
 		}
-
-		row := &SelectedRow{}
-
 		// Determine group key
 		var groupKey string
 		if statement.GroupBy != (Expression{}) {
-			groupKey = eval(statement.GroupBy, table, cursor, nil, nil)
+			evaluated := evaluateExpression(statement.GroupBy, row, tableDefinition)
+			groupKey = interfaceToString(evaluated)
 		}
-
 		// Group data
 		if grouping {
 			groupedData[groupKey] = row
-
-			// Evaluate aggregate functions
-			for _, function := range aggregateFunctions {
-				if function.Function.Name == "count" {
-					function.Data[groupKey]++
-				}
-			}
 		}
-
 		// Append row into selected data array
 		if !grouping {
-			resultSet = append(resultSet, row)
-		}
-
-		// Select specified items from row
-		for _, item := range selectItems {
-			row.Data = append(row.Data, eval(item, table, cursor, &groupKey, aggregateFunctions))
-		}
-
-		// Store column to use for sorting
-		if statement.OrderBy != (OrderByExpression{}) {
-			row.Order = eval(statement.OrderBy.By, table, cursor, &groupKey, aggregateFunctions)
+			result = append(result, row)
 		}
 	}
 
 	// Add grouped data into result set
 	if grouping {
 		for key := range groupedData {
-			resultSet = append(resultSet, groupedData[key])
+			result = append(result, groupedData[key])
 		}
 	}
-
 	// Sort results
-	if statement.OrderBy != (OrderByExpression{}) {
-		sort.Slice(resultSet, func(i, j int) bool {
+	if statement.OrderBy != (OrderBy{}) {
+		// TODO support sorting by other expression types
+		sortColumnIndex := tableDefinition.ColumnIndexes[statement.OrderBy.By.Identifier]
+		sort.Slice(result, func(i, j int) bool {
 			if statement.OrderBy.Direction == "asc" {
-				return resultSet[i].Order < resultSet[j].Order
+				return evaluateALtB(
+					result[i].Values[sortColumnIndex].Value,
+					result[j].Values[sortColumnIndex].Value,
+				)
 			} else {
-				return resultSet[i].Order > resultSet[j].Order
+				return evaluateAGtB(
+					result[i].Values[sortColumnIndex].Value,
+					result[j].Values[sortColumnIndex].Value,
+				)
 			}
 		})
 	}
-
-	// Turn into [][]string
-	var response [][]string
-	for _, row := range resultSet {
-		response = append(response, row.Data)
+	// Select items from rows
+	items := expandSelectItems(*statement.Items, tableDefinition)
+	response := make([][]string, len(result))
+	for i, row := range result {
+		for _, item := range items {
+			// TODO support selecting other expression types
+			columnIndex := tableDefinition.ColumnIndexes[item.Identifier]
+			response[i] = append(response[i], interfaceToString(row.Values[columnIndex].Value))
+		}
 	}
-
 	// Apply limit
 	limit := statement.Limit
 	if limit == -1 || limit > len(response) {
 		limit = len(response)
 	}
-
 	// Apply offset
 	offset := statement.Offset
 	if statement.Offset == -1 {
 		offset = 0
 	}
-
 	return response[offset:limit]
 }

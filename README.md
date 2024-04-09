@@ -9,14 +9,17 @@ A simple relational database management system (RDBMS) written in Go.
 - [x] Column types: `integer` and `text`
 - [x] Commands: `create table`, `insert` and `select`
 - [x] Select clauses: `where`, `group by`, `order by`, `limit` and `offset`
-- [ ] Store data on disk, organizing it into pages
+- [x] Store data on disk
+- [ ] Cache recently accessed pages
 - [ ] Aggregate functions
+- [ ] Add tests
 - [ ] Indexes
 - [ ] Query planner
 - [ ] Alias
 - [ ] Joins
 - [ ] Update and delete commands
 - [ ] Subqueries
+- [ ] Locking
 
 ## Syntax
 
@@ -50,18 +53,39 @@ select
 ## How it works
 
 First step is lexing and parsing the input string into a statement.
-The statement is then passed into the `Backend.Run` method, which executes the
-data definition, manipulation or querying.
+The statement is then passed into the `Backend.Run` method, which will
+execute the commands.
 
-The backend holds a map of tables, where the key is the table name. Each table
-contains its column definitions and all inserted data as a bytes array.
+### Steps for creating a table:
 
-### The data array
+1.  Add into table definitions the table name and its columns
 
-Data is a bytes array with similar format to how it will be stored on disk.
+### Steps for inserting data:
 
-All rows are stored sequentially within this array, and each row is prefixed by
-a 4 bytes integer indicating the offset to the next row.
+1.  Find the table's latest page
+2.  If there is no page, or if it the row doesn't fit on it, create a new page
+3.  Append data into page
 
-Values of type `text` have a variable length. The value is prefixed by a 2 bytes
-integer indicating the text size.
+### Steps for querying data:
+
+1.  Get index of pages to select from, and iterate through them:
+    1. Load page into memory
+    2. Iterate through page rows:
+       1. Apply filters
+       2. Apply group by and group functions
+       3. Evaluate and select specified items from statement
+2.  Sort results
+3.  Apply limit and offset
+
+## Data
+
+All data is currently stored on a single file called `data`, with the following
+structure:
+
+- Table definitions (table name + columns)
+- Pages list (table name + cursor)
+- Data pages
+
+Rows are stored sequentially inside pages, and their values are sorted in the order
+that the columns are defined. Since values may have variable length, rows have an
+offset prefix.

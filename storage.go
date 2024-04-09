@@ -170,7 +170,7 @@ func (s Storage) TableRows(tableName string) func(yield func(int, Row) bool) {
 	for pd.Cursor() < pageLength {
 		table := pd.ReadString()
 		pageIndex := pd.ReadInt(SmallIntSize)
-		if table == table {
+		if table == tableName {
 			pages = append(pages, pageIndex)
 		}
 	}

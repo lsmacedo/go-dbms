@@ -8,9 +8,6 @@ import (
 	"os"
 )
 
-const FILE_PATH = "data"
-const PAGE_SIZE = 16 * 1024
-
 const (
 	TableDefinitionsIndex int = 0
 	PageDirectoryIndex    int = 1
@@ -33,6 +30,8 @@ const (
 )
 
 type Storage struct {
+	filePath string
+	pageSize int
 	// May in the future have properties to cache pages
 }
 
@@ -52,13 +51,16 @@ type RowValue struct {
 }
 
 func NewStorage() Storage {
-	s := Storage{}
-	if _, err := os.Stat(FILE_PATH); errors.Is(err, os.ErrNotExist) {
+	s := Storage{
+		filePath: "data",
+		pageSize: 16 * 1024,
+	}
+	if _, err := os.Stat(s.filePath); errors.Is(err, os.ErrNotExist) {
 		// Create file if not exists
-		os.Create(FILE_PATH)
+		os.Create(s.filePath)
 		// Add two pages: table definitions and page directory
-		s.createPage("table_definitions", true)
-		s.createPage("page_directory", true)
+		s.createPage("table_definitions", false)
+		s.createPage("page_directory", false)
 	}
 	return s
 }
@@ -133,7 +135,7 @@ func (s Storage) InsertInto(tableToInsert string, values []RowValue) error {
 
 	// If a page for the table cannot be found, create a new one
 	if maxPageIndex == -1 {
-		maxPageIndex, err = s.createPage(tableToInsert, false)
+		maxPageIndex, err = s.createPage(tableToInsert, true)
 	} else {
 		// Check whether there is enough space on the page, and create a new one if
 		// needed
@@ -141,8 +143,8 @@ func (s Storage) InsertInto(tableToInsert string, values []RowValue) error {
 		if err != nil {
 			return err
 		}
-		if usedSpace := page.ReadInt(IntSize); PAGE_SIZE-usedSpace < len(buf.Bytes()) {
-			maxPageIndex, err = s.createPage(tableToInsert, false)
+		if usedSpace := page.ReadInt(IntSize); s.pageSize-usedSpace < len(buf.Bytes()) {
+			maxPageIndex, err = s.createPage(tableToInsert, true)
 		}
 	}
 
@@ -243,14 +245,14 @@ func (s Storage) GetTableDefinition(tableName string) (TableDefinition, error) {
 	return tableDefinition, nil
 }
 
-func (s Storage) createPage(tableName string, skipPd bool) (int, error) {
-	file, err := os.OpenFile(FILE_PATH, os.O_CREATE|os.O_RDWR, 0666)
+func (s Storage) createPage(tableName string, addToPageDirectory bool) (int, error) {
+	file, err := os.OpenFile(s.filePath, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		return -1, err
 	}
 	defer file.Close()
 
-	// Create buffer with page length prefix and PAGE_SIZE capacity
+	// Create buffer with page length prefix
 	buf := NewByteStreamBuffer()
 	buf.WriteInt(int(IntSize), IntSize)
 
@@ -260,30 +262,31 @@ func (s Storage) createPage(tableName string, skipPd bool) (int, error) {
 		return -1, err
 	}
 
-	pageIndex := int(stat.Size() / PAGE_SIZE)
+	// Find next available index for the page
+	pageIndex := int(int(stat.Size()) / s.pageSize)
 	if stat.Size() > 0 {
 		pageIndex++
 	}
-	file.WriteAt(buf.Bytes(), int64(pageIndex*PAGE_SIZE))
 
-	if skipPd {
-		return pageIndex, nil
-	}
+	// Write page length into new page
+	file.WriteAt(buf.Bytes(), int64(pageIndex*s.pageSize))
 
 	// Add to page directory
-	buf = NewByteStreamBuffer()
-	buf.WriteString(tableName)
-	buf.WriteInt(pageIndex, SmallIntSize)
-	err = s.appendToPage(buf.Bytes(), int(PageDirectoryIndex))
-	if err != nil {
-		return -1, err
+	if addToPageDirectory {
+		buf = NewByteStreamBuffer()
+		buf.WriteString(tableName)
+		buf.WriteInt(pageIndex, SmallIntSize)
+		err = s.appendToPage(buf.Bytes(), int(PageDirectoryIndex))
+		if err != nil {
+			return -1, err
+		}
 	}
 
 	return pageIndex, nil
 }
 
 func (s Storage) appendToPage(bytes []byte, pageIndex int) error {
-	file, err := os.OpenFile(FILE_PATH, os.O_CREATE|os.O_RDWR, 0666)
+	file, err := os.OpenFile(s.filePath, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		return err
 	}
@@ -291,7 +294,7 @@ func (s Storage) appendToPage(bytes []byte, pageIndex int) error {
 
 	// Read page length, so we can write after this position
 	plBytes := make([]byte, 4)
-	file.ReadAt(plBytes, int64(pageIndex*PAGE_SIZE))
+	file.ReadAt(plBytes, int64(pageIndex*s.pageSize))
 	pageLength := binary.BigEndian.Uint32(plBytes)
 	if pageLength == 0 {
 		pageLength += uint32(IntSize)
@@ -301,23 +304,23 @@ func (s Storage) appendToPage(bytes []byte, pageIndex int) error {
 	wb := NewByteStreamBuffer()
 	wb.WriteInt(int(pageLength)+len(bytes), IntSize)
 
-	file.WriteAt(wb.Bytes(), int64(pageIndex*PAGE_SIZE))
+	file.WriteAt(wb.Bytes(), int64(pageIndex*s.pageSize))
 
 	// Write content at the end of the page
-	file.WriteAt(bytes, int64(pageIndex*PAGE_SIZE)+int64(pageLength))
+	file.WriteAt(bytes, int64(pageIndex*s.pageSize)+int64(pageLength))
 
 	return nil
 }
 
 func (s Storage) readPage(pageIndex int) (ByteStreamBuffer, error) {
-	file, err := os.OpenFile(FILE_PATH, os.O_RDONLY, 0666)
+	file, err := os.OpenFile(s.filePath, os.O_RDONLY, 0666)
 	if err != nil {
 		return ByteStreamBuffer{}, err
 	}
 	defer file.Close()
 
-	pageBytes := make([]byte, PAGE_SIZE)
-	file.ReadAt(pageBytes, int64(PAGE_SIZE*pageIndex))
+	pageBytes := make([]byte, s.pageSize)
+	file.ReadAt(pageBytes, int64(s.pageSize*pageIndex))
 
 	return NewByteStreamBufferFrom(pageBytes), nil
 }

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math"
 	"os"
+
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 const (
@@ -32,7 +34,7 @@ const (
 type Storage struct {
 	filePath string
 	pageSize int
-	// May in the future have properties to cache pages
+	cache    *lru.Cache[int, []byte]
 }
 
 type TableDefinition struct {
@@ -51,9 +53,11 @@ type RowValue struct {
 }
 
 func NewStorage() Storage {
+	cache, _ := lru.New[int, []byte](1000)
 	s := Storage{
 		filePath: "data",
 		pageSize: 16 * 1024,
+		cache:    cache,
 	}
 	if _, err := os.Stat(s.filePath); errors.Is(err, os.ErrNotExist) {
 		// Create file if not exists
@@ -310,10 +314,23 @@ func (s Storage) appendToPage(bytes []byte, pageIndex int) error {
 	// Write content at the end of the page
 	file.WriteAt(bytes, int64(pageIndex*s.pageSize)+int64(pageLength))
 
+	// Update cache
+	val, ok := s.cache.Get(pageIndex)
+	if ok {
+		val = append(wb.Bytes(), val[IntSize:]...)
+		val = append(val, bytes...)
+		s.cache.Add(pageIndex, val)
+	}
+
 	return nil
 }
 
 func (s Storage) readPage(pageIndex int) (ByteStreamBuffer, error) {
+	val, ok := s.cache.Get(pageIndex)
+	if ok {
+		return NewByteStreamBufferFrom(val), nil
+	}
+
 	file, err := os.OpenFile(s.filePath, os.O_RDONLY, 0666)
 	if err != nil {
 		return ByteStreamBuffer{}, err
@@ -322,6 +339,9 @@ func (s Storage) readPage(pageIndex int) (ByteStreamBuffer, error) {
 
 	pageBytes := make([]byte, s.pageSize)
 	file.ReadAt(pageBytes, int64(s.pageSize*pageIndex))
+
+	pageLength := binary.BigEndian.Uint32(pageBytes[:IntSize])
+	s.cache.Add(pageIndex, pageBytes[:pageLength])
 
 	return NewByteStreamBufferFrom(pageBytes), nil
 }

@@ -20,6 +20,7 @@ A simple relational database management system (RDBMS) written in Go.
 - [ ] Update and delete commands
 - [ ] Subqueries
 - [ ] Locking
+- [ ] MVCC
 
 ## Syntax
 

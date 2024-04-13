@@ -28,7 +28,7 @@ type ColumnType uint
 const (
 	Int ColumnType = iota
 	Text
-	Unknown
+	UnknownColumnType
 )
 
 type Storage struct {
@@ -353,7 +353,7 @@ func columnTypeFromString(columnType string) ColumnType {
 	case "text":
 		return Text
 	}
-	return Unknown
+	return UnknownColumnType
 }
 
 func columnTypeToString(columnType ColumnType) string {

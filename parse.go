@@ -67,12 +67,15 @@ func (p *Parser) parseCreateTable() (CreateTableStatement, error) {
 		return emptyStatement, nil
 	}
 
-	table := p.matchToken(IDENTIFIER)
+	table := p.matchToken(Identifier)
 	if table == (Token{}) {
 		return emptyStatement, errors.New("expected identifier after 'create table'")
 	}
 
-	columns := p.parseCreateTableColumns()
+	columns, err := p.parseCreateTableColumns()
+	if err != nil {
+		return emptyStatement, err
+	}
 
 	return CreateTableStatement{
 		Name:    table.Value.(string),
@@ -80,26 +83,36 @@ func (p *Parser) parseCreateTable() (CreateTableStatement, error) {
 	}, nil
 }
 
-func (p *Parser) parseCreateTableColumns() []ColumnDefinition {
+func (p *Parser) parseCreateTableColumns() ([]ColumnDefinition, error) {
 	var columns []ColumnDefinition
 
+	if lp := p.matchToken(LeftParenthesis); lp == (Token{}) {
+		return columns, errors.New("expected column definitions after 'create table'")
+	}
+
 	for {
-		columnName := p.matchToken(IDENTIFIER)
-		if columnName == (Token{}) {
+		if p.matchToken(RightParenthesis) != (Token{}) {
 			break
 		}
 
-		columnType := p.matchToken(KEYWORD)
+		columnName := p.matchToken(Identifier)
+		if columnName == (Token{}) {
+			return columns, errors.New("expected column name")
+		}
+
+		columnType := p.matchToken(Keyword)
+		if columnType == (Token{}) {
+			return columns, fmt.Errorf("expected column type after '%s'", columnName.Value)
+		}
+
 		columns = append(
 			columns,
 			ColumnDefinition{Name: columnName.Value.(string), Type: columnType.Value.(string)},
 		)
 
-		if p.matchToken(COMMA) == (Token{}) {
-			break
-		}
+		p.matchToken(Comma)
 	}
-	return columns
+	return columns, nil
 }
 
 func (p *Parser) parseInsert() (InsertStatement, error) {
@@ -109,13 +122,20 @@ func (p *Parser) parseInsert() (InsertStatement, error) {
 		return emptyStatement, nil
 	}
 
-	table := p.matchToken(IDENTIFIER)
+	table := p.matchToken(Identifier)
 	if table == (Token{}) {
 		return emptyStatement, errors.New("expected identifier after 'insert into'")
 	}
 
-	var columns = p.parseInsertColumns()
-	var values = p.parseInsertValues()
+	columns, err := p.parseInsertColumns()
+	if err != nil {
+		return emptyStatement, err
+	}
+
+	values, err := p.parseInsertValues()
+	if err != nil {
+		return emptyStatement, err
+	}
 
 	return InsertStatement{
 		Table:   table.Value.(string),
@@ -124,41 +144,63 @@ func (p *Parser) parseInsert() (InsertStatement, error) {
 	}, nil
 }
 
-func (p *Parser) parseInsertColumns() []Expression {
+func (p *Parser) parseInsertColumns() ([]Expression, error) {
 	var columns []Expression
 
-	for {
-		column := p.matchToken(IDENTIFIER)
-		if column == (Token{}) {
-			break
-		}
-		columns = append(columns, Expression{Identifier: column.Value.(string)})
-		if p.matchToken(COMMA) == (Token{}) {
-			break
-		}
+	if lp := p.matchToken(LeftParenthesis); lp == (Token{}) {
+		return columns, errors.New("expected columns list after 'insert into <table_name>'")
 	}
 
-	return columns
+	for {
+		if p.matchToken(RightParenthesis) != (Token{}) {
+			break
+		}
+
+		column := p.matchToken(Identifier)
+		if column == (Token{}) {
+			return columns, errors.New("expected column name")
+		}
+
+		columns = append(
+			columns,
+			Expression{Kind: IdentifierExpressionKind, Identifier: column.Value.(string)},
+		)
+
+		p.matchToken(Comma)
+	}
+
+	return columns, nil
 }
 
-func (p *Parser) parseInsertValues() []Expression {
+func (p *Parser) parseInsertValues() ([]Expression, error) {
 	var values []Expression
 	if !p.matchKeyword("values") {
-		return values
+		return values, errors.New("expected 'values' after columns list")
+	}
+
+	if lp := p.matchToken(LeftParenthesis); lp == (Token{}) {
+		return values, errors.New("expected values list after 'values'")
 	}
 
 	for {
-		value := p.matchToken(NUMBER, STRING)
+		if p.matchToken(RightParenthesis) != (Token{}) {
+			break
+		}
+
+		value := p.matchToken(Number, String)
 		if value == (Token{}) {
-			break
+			return values, errors.New("expected literal")
 		}
-		values = append(values, Expression{Kind: LiteralExpressionKind, Literal: value.Value})
-		if p.matchToken(COMMA) == (Token{}) {
-			break
-		}
+
+		values = append(
+			values,
+			Expression{Kind: LiteralExpressionKind, Literal: value.Value},
+		)
+
+		p.matchToken(Comma)
 	}
 
-	return values
+	return values, nil
 }
 
 func (p *Parser) parseSelect() (SelectStatement, error) {
@@ -227,7 +269,7 @@ func (p *Parser) parseSelectItems() []Expression {
 			break
 		}
 		items = append(items, item)
-		if p.matchToken(COMMA) == (Token{}) {
+		if p.matchToken(Comma) == (Token{}) {
 			break
 		}
 	}
@@ -239,19 +281,19 @@ func (p *Parser) parseItem() Expression {
 	for {
 		var expression Expression
 
-		item := p.matchToken(IDENTIFIER, WILDCARD, NUMBER, STRING)
+		item := p.matchToken(Identifier, Wildcard, Number, String)
 		if item == (Token{}) {
 			return expression
 		}
 
-		if item.Type == IDENTIFIER || item.Type == WILDCARD {
+		if item.Type == Identifier || item.Type == Wildcard {
 			expression = Expression{Kind: IdentifierExpressionKind, Identifier: item.Value.(string)}
 		} else {
 			expression = Expression{Kind: LiteralExpressionKind, Literal: item.Value}
 		}
 
 		// If item is followed by an operator, then it's a binary expression
-		operator := p.matchToken(OPERATOR)
+		operator := p.matchToken(Operator)
 		if operator != (Token{}) {
 			return Expression{
 				Kind: BinaryExpressionKind,
@@ -271,7 +313,7 @@ func (p *Parser) parseSelectTable() (string, error) {
 	if !p.matchKeyword("from") {
 		return "", errors.New("expected 'from' after select items")
 	}
-	table := p.matchToken(IDENTIFIER)
+	table := p.matchToken(Identifier)
 	if table == (Token{}) {
 		return "", errors.New("expected identifier after 'from'")
 	}
@@ -340,7 +382,7 @@ func (p *Parser) matchKeyword(value string) bool {
 	}
 	n := len(strings.Split(value, " "))
 	for i := 0; i < n; i++ {
-		if p.tokens[p.cursor+i].Type != KEYWORD {
+		if p.tokens[p.cursor+i].Type != Keyword {
 			return false
 		}
 		if i != 0 {

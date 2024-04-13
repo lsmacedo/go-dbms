@@ -24,32 +24,24 @@ A simple relational database management system (RDBMS) written in Go.
 
 ## Syntax
 
-The syntax used here is a simplified version of what's usually seen in a RDBMS.
+The syntax used here is a simplified version of what's usually seen in an RDBMS.
 
 ### Create table
 
-```sql
-create table `TableName` [ `ColumnName` `DataType` [, ...] ]
-```
+create table **table_name** ( **column_name** &nbsp;**data_type** [, ...] )
 
 ### Insert
 
-```sql
-insert into `TableName` [ `ColumnName` [, ...] ] values [ `Expression` [, ...] ]
-```
+insert into **table_name** ( **column_name** [, ...] ) values ( **literal_value** [, ...] )
 
 ### Select
 
-```sql
-select
-  [ * | `Expression` [, ...] ]
-  from `TableName`
-  [ where `Expression` ]
-  [ group by `Expression` ]
-  [ order by `Expression` [ ASC | DESC ] ]
-  [ limit `Limit` ]
-  [ offset `Offset` ]
-```
+select [ \* | **expression** [, ...] ] from **table_name**<br/>
+[ where **expression** ]<br/>
+[ group by **expression** ]<br/>
+[ order by **expression** [ asc | desc ] ]<br/>
+[ limit **literal_value** ]
+[ offset **literal_value** ]
 
 ## How it works
 

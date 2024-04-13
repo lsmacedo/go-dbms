@@ -15,16 +15,18 @@ type Lexer struct {
 type TokenType uint
 
 const (
-	EOF TokenType = iota
-	WHITESPACE
-	STRING
-	NUMBER
-	KEYWORD
-	IDENTIFIER
-	OPERATOR
-	WILDCARD
-	COMMA
-	UNKNOWN
+	Eof TokenType = iota
+	Whitespace
+	String
+	Number
+	Keyword
+	Identifier
+	Operator
+	Wildcard
+	Comma
+	LeftParenthesis
+	RightParenthesis
+	UnknownTokenType
 )
 
 type Token struct {
@@ -42,10 +44,10 @@ func (l *Lexer) Scan(input string) []Token {
 	l.cursor = 0
 	for {
 		token := l.scanNext()
-		if token.Type == EOF {
+		if token.Type == Eof {
 			break
 		}
-		if token.Type == WHITESPACE {
+		if token.Type == Whitespace {
 			continue
 		}
 		tokens = append(tokens, token)
@@ -58,28 +60,33 @@ func (l *Lexer) scanNext() Token {
 	switch {
 	// EOF
 	case l.cursor >= len(l.input):
-		return l.createToken(EOF)
+		return l.createToken(Eof)
+	// PARENTHESIS
+	case l.matchChar('('):
+		return l.createToken(LeftParenthesis)
+	case l.matchChar(')'):
+		return l.createToken(RightParenthesis)
 	// WHITESPACE
 	case l.matchCharFunc(unicode.IsSpace):
 		for l.matchCharFunc(unicode.IsSpace) {
 			continue
 		}
-		return l.createToken(WHITESPACE)
+		return l.createToken(Whitespace)
 	// NUMBER
 	case l.matchCharFunc(unicode.IsNumber):
 		for l.matchCharFunc(unicode.IsNumber) {
 			continue
 		}
-		return l.createToken(NUMBER)
+		return l.createToken(Number)
 	// IDENTIFIER OR KEYWORD
 	case l.matchCharFunc(isLetterOrUnderscore):
 		for l.matchCharFunc(isAlphanumericOrUnderscore) {
 			continue
 		}
 		if stringIsKeyword(l.currString()) {
-			return l.createToken(KEYWORD)
+			return l.createToken(Keyword)
 		}
-		return l.createToken(IDENTIFIER)
+		return l.createToken(Identifier)
 	// STRING
 	case l.matchChar('\''):
 		for l.matchCharFunc(func(a rune) bool { return a != '\'' }) {
@@ -87,21 +94,21 @@ func (l *Lexer) scanNext() Token {
 		}
 		l.cursor++
 		value := l.input[l.currTokenStart+1 : l.cursor-1]
-		return Token{Type: STRING, Value: value}
+		return Token{Type: String, Value: value}
 	// COMMA
 	case l.matchChar(','):
-		return l.createToken(COMMA)
+		return l.createToken(Comma)
 	// WILDCARD
 	case l.matchChar('*'):
-		return l.createToken(WILDCARD)
+		return l.createToken(Wildcard)
 	// OPERATOR
 	case stringIsOperator(l.input[l.currTokenStart : l.cursor+1]):
 		for stringIsOperator(l.input[l.currTokenStart : l.cursor+1]) {
 			l.cursor++
 		}
-		return l.createToken(OPERATOR)
+		return l.createToken(Operator)
 	default:
-		return l.createToken(UNKNOWN)
+		return l.createToken(UnknownTokenType)
 	}
 }
 
@@ -134,7 +141,7 @@ func (l Lexer) currString() string {
 }
 
 func (l Lexer) createToken(tokenType TokenType) Token {
-	if tokenType == NUMBER {
+	if tokenType == Number {
 		value, _ := strconv.Atoi(l.currString())
 		return Token{Type: tokenType, Value: value}
 	}

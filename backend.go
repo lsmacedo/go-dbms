@@ -74,7 +74,7 @@ func (backend Backend) runSelect(statement SelectStatement) [][]string {
 		// Break loop after reaching limit
 		if statement.Limit != -1 &&
 			index >= statement.Limit &&
-			statement.GroupBy == (Expression{}) &&
+			!grouping &&
 			statement.OrderBy == (OrderBy{}) {
 			break
 		}

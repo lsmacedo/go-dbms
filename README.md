@@ -9,9 +9,9 @@ A simple relational database management system (RDBMS) written in Go.
 - [x] Column types: `integer` and `text`
 - [x] Commands: `create table`, `insert` and `select`
 - [x] Select clauses: `where`, `group by`, `order by`, `limit` and `offset`
+- [x] Aggregate functions: `count()`
 - [x] Store data on disk
 - [x] Cache recently accessed pages
-- [ ] Aggregate functions
 - [ ] Add tests
 - [ ] Indexes
 - [ ] Query planner

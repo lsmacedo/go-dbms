@@ -6,15 +6,15 @@ const (
 	LiteralExpressionKind ExpressionKind = iota
 	IdentifierExpressionKind
 	BinaryExpressionKind
-	FunctionExpressionKind
+	FunctionCallExpressionKind
 )
 
 type Expression struct {
-	Literal    interface{}
-	Identifier string
-	Binary     *BinaryExpression
-	Function   Function
-	Kind       ExpressionKind
+	Literal      interface{}
+	Identifier   string
+	Binary       *BinaryExpression
+	FunctionCall FunctionCall
+	Kind         ExpressionKind
 }
 
 type BinaryExpression struct {
@@ -23,7 +23,7 @@ type BinaryExpression struct {
 	Operator string
 }
 
-type Function struct {
+type FunctionCall struct {
 	Name   string
 	Params *[]Expression
 }

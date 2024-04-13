@@ -286,8 +286,19 @@ func (p *Parser) parseItem() Expression {
 			return expression
 		}
 
-		if item.Type == Identifier || item.Type == Wildcard {
-			expression = Expression{Kind: IdentifierExpressionKind, Identifier: item.Value.(string)}
+		if item.Type == Identifier {
+			if p.matchToken(LeftParenthesis) == (Token{}) {
+				expression = Expression{Kind: IdentifierExpressionKind, Identifier: item.Value.(string)}
+			} else {
+				//@TODO parse function parameters
+				p.matchToken(RightParenthesis)
+				expression = Expression{
+					Kind:         FunctionCallExpressionKind,
+					FunctionCall: FunctionCall{Name: item.Value.(string)},
+				}
+			}
+		} else if item.Type == Wildcard {
+			expression = Expression{Kind: IdentifierExpressionKind, Identifier: "*"}
 		} else {
 			expression = Expression{Kind: LiteralExpressionKind, Literal: item.Value}
 		}
